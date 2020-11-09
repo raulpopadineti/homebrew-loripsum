@@ -1,0 +1,109 @@
+#!/usr/bin/env ruby
+
+require 'optparse'
+require 'net/http'
+require 'uri'
+require 'rack'
+
+VERSION = '1.0.0'
+
+# String extension to colorize terminal output.
+# Taken from this SO answer: https://stackoverflow.com/a/11482430/615410
+class String
+  # colorization
+  def colorize(color_code)
+    "\e[#{color_code}m#{self}\e[0m"
+  end
+
+  def red
+    colorize(31)
+  end
+
+  def green
+    colorize(32)
+  end
+
+  def yellow
+    colorize(33)
+  end
+end
+
+arguments = {}
+parser = OptionParser.new do |parser|
+  parser.banner = "A simple Lorem Ipsum generator using the https://loripsum.net API."
+  parser.separator ''
+  parser.separator 'Usage: loripsum [options]'
+  parser.separator ''
+  parser.separator 'Common options:'
+  parser.on('-h', '--help', 'Prints this help.') do
+    puts parser
+    exit
+  end
+  parser.on('--version', 'Show version.') do
+    puts VERSION
+    exit
+  end
+  parser.on('-v', '--verbose', 'Verbose mode. Prints the Lorem Ipsum output to the console.')
+
+  parser.separator ''
+  parser.separator 'Specific options:'
+  parser.on('-c', '--count COUNT', 'The number of paragraphs. Default: 4')
+  parser.on('-l', '--length LENGTH',
+            'The average length of a paragraph.',
+            'Options: short, medium, long, verylong. Default: medium')
+  parser.on('-t', '--only-text', 'Returns plain text, no HTML.')
+  parser.on('-A', '--only-caps', 'Returns only uppercase letters.')
+  parser.on('-P', '--prude', 'Prude version (eliminates any English offensive words)')
+  parser.on('-a', '--with-anchors', 'Include anchor tags.')
+  parser.on('-b', '--with-blockquote', 'Include blockquotes.')
+  parser.on('-d', '--with-description-list', 'Include description lists.')
+  parser.on('-e', '--with-emphasize', 'Include bold, italic, and marked text.')
+  parser.on('-o', '--with-ordered-list', 'Include ordered lists.')
+  parser.on('-u', '--with-unordered-list', 'Include unordered lists.')
+  parser.on('-C', '--with-code', 'Include code samples.')
+  parser.on('-H', '--with-headers', 'Include header tags.')
+end
+
+begin
+  parser.parse!(into: arguments)
+rescue OptionParser::InvalidOption => e
+  puts "#{e.reason}: #{e.args}. Falling back to default Lorem Ipsum.".yellow
+end
+
+base_url = 'https://loripsum.net/api'
+base_url += "/#{arguments.fetch(:count)}" if arguments.key?(:count)
+base_url += "/#{arguments.fetch(:length)}" if arguments.key?(:length)
+base_url += "/prude" if arguments.key?(:prude)
+base_url += "/link" if arguments.key?(:'with-anchors')
+base_url += "/headers" if arguments.key?(:'with-headers')
+base_url += "/ul" if arguments.key?(:'with-unordered-list')
+base_url += "/ol" if arguments.key?(:'with-ordered-list')
+base_url += "/dl" if arguments.key?(:'with-description-list')
+base_url += "/bq" if arguments.key?(:'with-blockquote')
+base_url += "/allcaps" if arguments.key?(:'only-caps')
+base_url += "/plaintext" if arguments.key?(:'only-text')
+base_url += "/decorate" if arguments.key?(:'with-emphasize')
+base_url += "/code" if arguments.key?(:'with-code')
+uri = URI(base_url)
+
+response = Net::HTTP.get_response(uri)
+if response.code == '200'
+  success = true
+  puts response.body if arguments.key?(:verbose)
+  begin
+    IO.popen('pbcopy', 'w') { |f| f << response.body }
+  rescue Errno::ENOENT
+    IO.popen('copy', 'w') { |f| f << response.body }
+  rescue
+    success = false
+    puts "An error occurred, and the text could not be copied to your clipboard."
+    puts 'Here is the full output so you can copy it manually:'
+    puts '---- BEGIN Lorem Ipsum ----'
+    puts response.body
+    puts "---- END Lorem Ipsum ----\n\n"
+  ensure
+    puts 'Lorem Ipsum text was copied to your clipboard.'.green if success
+  end
+else
+  puts 'Something went wrong. Please try again'.red
+end
